@@ -15,9 +15,13 @@ const chatbotRoutes = require("./routes/chatbotRoutes");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const allowedOrigin =
+  process.env.CLIENT_URL || "http://localhost:5173";
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: allowedOrigin,
+    credentials: true,
   })
 );
 
