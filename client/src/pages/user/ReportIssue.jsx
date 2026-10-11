@@ -706,15 +706,16 @@ export default function ReportIssue() {
                       </span>
                       <span className="min-w-0">
                         <span className="block text-sm font-bold text-slate-800">
-                          Camera or gallery
+                          Take photo
                         </span>
                         <span className="mt-1 block text-xs text-slate-500">
-                          Choose a source from your device
+                          Open your rear camera
                         </span>
                       </span>
                       <input
                         type="file"
-                        accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"
+                        accept="image/*"
+                        capture="environment"
                         disabled={submitting}
                         onChange={handlePhoto}
                         className="sr-only"
