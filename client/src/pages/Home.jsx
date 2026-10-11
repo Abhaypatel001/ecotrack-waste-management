@@ -280,13 +280,13 @@ export default function Home() {
 
   return (
 
-    <div className="min-h-screen bg-[#fbfdfb] text-[#102b22]">
+    <div className="min-h-screen w-full min-w-0 max-w-full overflow-x-clip bg-[#fbfdfb] text-[#102b22]">
 
       {/* NAVBAR */}
 
-      <header className="sticky top-0 z-50 border-b border-emerald-950/5 bg-white/95 backdrop-blur-xl">
+      <header className="sticky top-0 z-50 w-full border-b border-emerald-950/5 bg-white/95 backdrop-blur-xl">
 
-        <nav className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-8 sm:py-4 lg:px-10">
+        <nav className="mx-auto flex w-full min-w-0 max-w-7xl items-center justify-between gap-2 px-3 py-3 min-[380px]:gap-3 min-[380px]:px-4 sm:px-8 sm:py-4 lg:px-10">
 
           {/* BRAND */}
 
@@ -382,7 +382,7 @@ export default function Home() {
 
           {/* AUTHENTICATION NAVIGATION */}
 
-          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          <div className="flex min-w-0 shrink-0 items-center gap-1 min-[380px]:gap-2 sm:gap-3">
 
             {currentUser ? (
 
@@ -620,7 +620,7 @@ export default function Home() {
 
                   to="/signup"
 
-                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-800 px-3 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-900/15 transition hover:-translate-y-0.5 hover:bg-emerald-900 sm:px-5"
+                  className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-emerald-800 px-2.5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-900/15 transition hover:-translate-y-0.5 hover:bg-emerald-900 min-[380px]:gap-2 min-[380px]:px-3 sm:px-5"
 
                 >
 
@@ -725,13 +725,13 @@ export default function Home() {
 
       {/* HERO */}
 
-      <main>
+      <main className="w-full min-w-0">
 
-        <section id="home" className="relative scroll-mt-24">
+        <section id="home" className="relative min-w-0 max-w-full overflow-x-clip scroll-mt-24">
 
-          <div className="absolute -left-40 top-10 h-80 w-80 rounded-full bg-emerald-100/60 blur-3xl" />
+          <div className="pointer-events-none absolute -left-40 top-10 h-80 w-80 rounded-full bg-emerald-100/60 blur-3xl" />
 
-          <div className="absolute right-0 top-0 h-96 w-96 rounded-full bg-lime-100/40 blur-3xl" />
+          <div className="pointer-events-none absolute right-0 top-0 h-96 w-96 rounded-full bg-lime-100/40 blur-3xl" />
 
 
 
@@ -855,7 +855,7 @@ export default function Home() {
 
             <div className="relative mx-auto w-full max-w-xl lg:max-w-none">
 
-              <div className="absolute -inset-5 rounded-[3rem] bg-gradient-to-br from-emerald-200/60 via-lime-100/30 to-emerald-50 blur-xl" />
+              <div className="pointer-events-none absolute -inset-5 rounded-[3rem] bg-gradient-to-br from-emerald-200/60 via-lime-100/30 to-emerald-50 blur-xl" />
 
 
 
