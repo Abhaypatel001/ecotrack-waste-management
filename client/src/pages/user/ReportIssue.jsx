@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -26,14 +25,11 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-
 const API_BASE = (
   import.meta.env.VITE_API_URL || "http://localhost:5000"
 ).replace(/\/+$/, "");
-
 const API_URL = `${API_BASE}/api/issues`;
 const DEFAULT_POSITION = [26.4499, 80.3319];
-
 const markerIcon = new L.Icon({
   iconUrl:
     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
@@ -44,7 +40,6 @@ const markerIcon = new L.Icon({
   iconSize: [25, 41],
   iconAnchor: [12, 41],
 });
-
 const categories = [
   {
     value: "Garbage Overflow",
@@ -77,34 +72,111 @@ const categories = [
     desc: "Another sanitation concern",
   },
 ];
-
 const allowedImageTypes = [
   "image/jpeg",
   "image/png",
   "image/webp",
   "image/gif",
 ];
-
 function LocationPicker({ position, onChange }) {
   useMapEvents({
     click(event) {
       onChange([event.latlng.lat, event.latlng.lng]);
     },
   });
-
   return <Marker position={position} icon={markerIcon} />;
 }
-
 function MapRecenter({ position }) {
   const map = useMap();
-
   useEffect(() => {
     map.flyTo(position, Math.max(map.getZoom(), 14), {
       duration: 0.5,
     });
   }, [map, position]);
-
   return null;
+}
+async function compressPhotoIfNeeded(file) {
+  const MAX_BYTES = 5 * 1024 * 1024;
+  const TARGET_BYTES = 4.2 * 1024 * 1024;
+
+  if (file.size <= MAX_BYTES) return file;
+
+  if (file.type === "image/gif") {
+    throw new Error(
+      "This GIF exceeds the 5 MB limit. Please choose a smaller photo."
+    );
+  }
+
+  let image;
+
+  if (typeof createImageBitmap === "function") {
+    try {
+      image = await createImageBitmap(file);
+    } catch {
+      // Fall back to HTMLImageElement for browsers that support it.
+    }
+  }
+
+  if (!image) {
+    const temporaryUrl = URL.createObjectURL(file);
+    try {
+      image = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () =>
+          reject(new Error("This image could not be opened on this device."));
+        img.src = temporaryUrl;
+      });
+    } finally {
+      URL.revokeObjectURL(temporaryUrl);
+    }
+  }
+
+  try {
+    const canvas = document.createElement("canvas");
+    const largestDimension = 1920;
+    let scale = Math.min(
+      1,
+      largestDimension / Math.max(image.width, image.height)
+    );
+    let quality = 0.86;
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+
+      const context = canvas.getContext("2d");
+      if (!context) {
+        throw new Error("Photo processing is unavailable on this device.");
+      }
+
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", quality)
+      );
+
+      if (!blob) {
+        throw new Error("Could not compress this photo.");
+      }
+
+      if (blob.size <= TARGET_BYTES) {
+        const baseName = file.name.replace(/\.[^.]+$/, "") || "garbage-photo";
+        return new File([blob], `${baseName}.jpg`, {
+          type: "image/jpeg",
+          lastModified: Date.now(),
+        });
+      }
+
+      scale *= 0.82;
+      quality = Math.max(0.48, quality - 0.06);
+    }
+
+    throw new Error(
+      "Photo is still too large after compression. Please choose a smaller image."
+    );
+  } finally {
+    if (typeof image.close === "function") image.close();
+  }
 }
 
 export default function ReportIssue() {
@@ -113,46 +185,36 @@ export default function ReportIssue() {
   const [address, setAddress] = useState("");
   const [position, setPosition] = useState([...DEFAULT_POSITION]);
   const [photo, setPhoto] = useState(null);
-
   const [locationStatus, setLocationStatus] = useState("");
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
   const [submitted, setSubmitted] = useState(false);
   const [reportId, setReportId] = useState("");
   const [error, setError] = useState("");
-
   // Clean up the previous image preview URL.
   useEffect(() => {
     if (!photo?.preview) return;
-
     const previewUrl = photo.preview;
-
     return () => {
       URL.revokeObjectURL(previewUrl);
     };
   }, [photo]);
-
   function getCurrentLocation() {
     setError("");
-
     if (!navigator.geolocation) {
       setLocationStatus(
         "Your browser does not support location services."
       );
       return;
     }
-
     setLoadingLocation(true);
     setLocationStatus("Requesting location permission…");
-
     navigator.geolocation.getCurrentPosition(
       (result) => {
         const coords = [
           result.coords.latitude,
           result.coords.longitude,
         ];
-
         setPosition(coords);
         setLocationStatus(
           "Location captured. You can still adjust the pin on the map."
@@ -165,7 +227,6 @@ export default function ReportIssue() {
             ? "Location permission denied. Allow access in your browser settings."
             : "Couldn't get your location. You can place the pin manually on the map."
         );
-
         setLoadingLocation(false);
       },
       {
@@ -175,74 +236,94 @@ export default function ReportIssue() {
       }
     );
   }
+  async function handlePhoto(event) {
+    const input = event.currentTarget;
+    const selectedFile = input.files?.[0];
 
-  function handlePhoto(event) {
-    const file = event.target.files?.[0];
-
-    if (!file) return;
-
-    if (!allowedImageTypes.includes(file.type)) {
-      setError("Choose a JPG, PNG, WEBP or GIF image.");
-      event.target.value = "";
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setError("Please choose a photo smaller than 5 MB.");
-      event.target.value = "";
-      return;
-    }
+    // Clearing the picker lets users select the same photo again.
+    input.value = "";
+    if (!selectedFile) return;
 
     setError("");
 
-    setPhoto({
-      file,
-      preview: URL.createObjectURL(file),
-    });
-  }
+    const extension = selectedFile.name.split(".").pop().toLowerCase();
+    const extensionTypes = {
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      png: "image/png",
+      webp: "image/webp",
+      gif: "image/gif",
+    };
 
+    const type =
+      selectedFile.type === "image/jpg"
+        ? "image/jpeg"
+        : selectedFile.type || extensionTypes[extension] || "";
+
+    if (!allowedImageTypes.includes(type)) {
+      setError(
+        "Choose a JPG, PNG, WEBP or GIF photo. HEIC/HEIF images are not supported yet."
+      );
+      return;
+    }
+
+    try {
+      let file = selectedFile;
+
+      // Normalize missing or non-standard MIME types.
+      if (file.type !== type) {
+        file = new File([file], file.name, {
+          type,
+          lastModified: file.lastModified,
+        });
+      }
+
+      file = await compressPhotoIfNeeded(file);
+
+      setPhoto({
+        file,
+        preview: URL.createObjectURL(file),
+      });
+      setError("");
+    } catch (photoError) {
+      setError(
+        photoError.message ||
+          "Photo could not be processed. Please choose another photo."
+      );
+    }
+  }
   // Send the report using the JWT from the authenticated session.
   // The backend determines reporterId from the verified token.
   async function handleSubmit(event) {
     event.preventDefault();
-
     if (submitting) return;
-
     setError("");
-
     const token = localStorage.getItem("ecotrack-token");
-
     if (!token) {
       setError(
         "You are not signed in. Please log in before submitting a report."
       );
       return;
     }
-
     if (!category.trim()) {
       setError("Please select an issue category.");
       return;
     }
-
     if (!description.trim()) {
       setError(
         "Please add a short description so the team understands the issue."
       );
       return;
     }
-
     if (description.trim().length > 1000) {
       setError("Description must be 1000 characters or fewer.");
       return;
     }
-
     if (address.trim().length > 500) {
       setError("Address must be 500 characters or fewer.");
       return;
     }
-
     const [latitude, longitude] = position;
-
     if (
       !Number.isFinite(latitude) ||
       !Number.isFinite(longitude) ||
@@ -254,24 +335,19 @@ export default function ReportIssue() {
       setError("Please select a valid location on the map.");
       return;
     }
-
     setSubmitting(true);
-
     try {
       const payload = new FormData();
-
       payload.append("category", category);
       payload.append("description", description.trim());
       payload.append("address", address.trim());
       payload.append("latitude", String(latitude));
       payload.append("longitude", String(longitude));
-
       // Do not send a browser-generated reporterId.
       // The backend will use req.user.id from the verified JWT.
       if (photo?.file) {
         payload.append("photo", photo.file);
       }
-
       const response = await fetch(API_URL, {
         method: "POST",
         headers: {
@@ -279,42 +355,34 @@ export default function ReportIssue() {
         },
         body: payload,
       });
-
       const result = await response.json().catch(() => ({}));
-
       if (response.status === 401) {
         localStorage.removeItem("ecotrack-token");
         localStorage.removeItem("ecotrack-user");
-
         throw new Error(
           "Your session is invalid or expired. Please log in again."
         );
       }
-
       if (!response.ok || !result.success || !result.data) {
         throw new Error(
           result.message ||
             "The server could not save your report. Please try again."
         );
       }
-
       const savedReport = result.data;
-
       if (!savedReport._id) {
         throw new Error(
           "The server did not return a report reference."
         );
       }
-
       setReportId(
         `ECO-${String(savedReport._id).slice(-8).toUpperCase()}`
       );
-
       setSubmitted(true);
     } catch (err) {
       if (err instanceof TypeError) {
         setError(
-          "Cannot connect to the EcoTrack server. Check that the backend is running on port 5000."
+          "Cannot connect to the EcoTrack server. Check your internet connection and try again."
         );
       } else {
         setError(
@@ -326,7 +394,6 @@ export default function ReportIssue() {
       setSubmitting(false);
     }
   }
-
   function resetForm() {
     setCategory("Garbage Overflow");
     setDescription("");
@@ -338,7 +405,6 @@ export default function ReportIssue() {
     setSubmitted(false);
     setReportId("");
   }
-
   // Show success only after the API confirms that the report was saved.
   if (submitted) {
     return (
@@ -348,53 +414,44 @@ export default function ReportIssue() {
             <div className="relative overflow-hidden bg-gradient-to-br from-[#0b3328] via-emerald-800 to-emerald-600 px-7 py-12 text-center text-white sm:px-12">
               <div className="absolute -right-12 -top-20 h-56 w-56 rounded-full border-[28px] border-white/10" />
               <div className="absolute -bottom-20 -left-10 h-48 w-48 rounded-full bg-lime-300/10 blur-2xl" />
-
               <span className="relative mx-auto flex h-20 w-20 items-center justify-center rounded-3xl border border-white/20 bg-white/10 shadow-xl backdrop-blur">
                 <CheckCircle2
                   size={42}
                   className="text-lime-300"
                 />
               </span>
-
               <p className="relative mt-6 text-xs font-bold uppercase tracking-[.24em] text-emerald-100">
                 Report received
               </p>
-
               <h1 className="relative mt-3 text-3xl font-black tracking-tight sm:text-4xl">
                 Thank you for speaking up.
               </h1>
-
               <p className="relative mx-auto mt-3 max-w-lg text-sm leading-6 text-emerald-50/80">
                 Your issue report has been saved to the EcoTrack
                 database. Keep your reference number for future
                 follow-up.
               </p>
             </div>
-
             <div className="p-7 sm:p-10">
               <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
                     Reference number
                   </p>
-
                   <p className="mt-1 text-xl font-black tracking-wide text-slate-900">
                     {reportId}
                   </p>
                 </div>
-
                 <span className="inline-flex w-fit items-center gap-2 rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-800">
                   <Clock3 size={14} />
                   Pending review
                 </span>
               </div>
-
               <p className="mt-4 text-xs leading-5 text-slate-500">
                 Your report was accepted by the API. Status updates
                 and notifications depend on the EcoTrack backend
                 features currently configured.
               </p>
-
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <button
                   type="button"
@@ -404,7 +461,6 @@ export default function ReportIssue() {
                   <AlertTriangle size={17} />
                   Report another issue
                 </button>
-
                 <Link
                   to="/user/dashboard"
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 px-5 py-3.5 text-sm font-bold text-slate-700 transition hover:border-emerald-200 hover:bg-emerald-50"
@@ -419,7 +475,6 @@ export default function ReportIssue() {
       </main>
     );
   }
-
   return (
     <main className="min-h-screen bg-[#f5f8f5] text-slate-800">
       <div className="mx-auto max-w-[1600px] px-3 py-3 sm:px-5 sm:py-4 lg:px-6">
@@ -433,32 +488,27 @@ export default function ReportIssue() {
           />
           Back to Dashboard
         </Link>
-
         {/* Hero */}
         <section className="relative mb-4 overflow-hidden rounded-[1.4rem] bg-gradient-to-br from-[#062e25] via-[#0d6245] to-[#5f9c55] px-5 py-5 text-white shadow-[0_18px_45px_-28px_rgba(6,78,59,.55)] sm:px-7 sm:py-6 lg:px-9">
           <div className="absolute -right-12 -top-24 h-80 w-80 rounded-full border-[44px] border-white/[0.06]" />
           <div className="absolute right-1/4 top-10 h-48 w-48 rounded-full bg-lime-300/10 blur-3xl" />
           <div className="absolute -bottom-24 left-1/3 h-64 w-64 rounded-full bg-emerald-300/10 blur-3xl" />
-
           <div className="relative grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
             <div className="max-w-3xl">
               <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[.2em] text-emerald-100 backdrop-blur">
                 <Sparkles size={14} className="text-lime-300" />
                 Community care · EcoTrack
               </span>
-
               <h1 className="mt-2 text-2xl font-black leading-tight tracking-tight sm:text-3xl lg:text-4xl">
                 Let’s make your neighbourhood{" "}
                 <span className="text-lime-300">cleaner.</span>
               </h1>
-
               <p className="mt-2 max-w-2xl text-sm leading-6 text-emerald-50/90 sm:text-base">
                 Spot a waste or sanitation issue? Share the details
                 and location. Every report is a step toward a
                 healthier, greener community.
               </p>
             </div>
-
             <div className="hidden h-28 w-28 items-center justify-center rounded-[2rem] border border-white/15 bg-white/10 shadow-xl backdrop-blur lg:flex">
               <Leaf
                 size={54}
@@ -467,7 +517,6 @@ export default function ReportIssue() {
               />
             </div>
           </div>
-
           <div className="relative mt-4 grid gap-2 border-t border-white/15 pt-3 sm:grid-cols-3">
             {[
               [
@@ -493,7 +542,6 @@ export default function ReportIssue() {
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-lime-300/15 text-lime-200">
                   <Icon size={19} />
                 </span>
-
                 <span>
                   <span className="block text-sm font-bold">
                     {title}
@@ -506,7 +554,6 @@ export default function ReportIssue() {
             ))}
           </div>
         </section>
-
         <form
           onSubmit={handleSubmit}
           className="grid items-stretch gap-3 xl:grid-cols-2"
@@ -517,22 +564,18 @@ export default function ReportIssue() {
               <p className="text-[11px] font-extrabold uppercase tracking-[.2em] text-emerald-700">
                 01 · Issue details
               </p>
-
               <h2 className="mt-1 text-lg font-extrabold tracking-tight text-slate-900">
                 Tell us what’s happening
               </h2>
-
               <p className="mt-1 text-xs text-slate-500">
                 A few details help us understand the problem.
               </p>
             </div>
-
             <div className="space-y-3 p-4 sm:p-5">
               <div>
                 <label className="mb-2 block text-sm font-bold text-slate-800">
                   Choose a category
                 </label>
-
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {categories.map((item) => (
                     <button
@@ -556,14 +599,12 @@ export default function ReportIssue() {
                       >
                         {item.emoji}
                       </span>
-
                       <span className="min-w-0 flex-1">
                         <span className="block text-xs font-bold leading-4 text-slate-800">
                           {item.value}
                         </span>
                         <span className="hidden">{item.desc}</span>
                       </span>
-
                       {category === item.value && (
                         <CheckCircle2
                           size={17}
@@ -574,7 +615,6 @@ export default function ReportIssue() {
                   ))}
                 </div>
               </div>
-
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <label
@@ -584,12 +624,10 @@ export default function ReportIssue() {
                     Describe the issue{" "}
                     <span className="text-rose-500">*</span>
                   </label>
-
                   <span className="text-xs text-slate-400">
                     {description.length}/1000
                   </span>
                 </div>
-
                 <textarea
                   id="issue-description"
                   value={description}
@@ -601,12 +639,10 @@ export default function ReportIssue() {
                   placeholder="For example: the community bin near the park has been overflowing since yesterday…"
                   className="w-full resize-y rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm leading-5 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
                 />
-
                 <p className="mt-1 text-[11px] text-slate-400">
                   Tip: include how long it has been there and any nearby landmark.
                 </p>
               </div>
-
               {/* Photo upload */}
               <div>
                 <label className="mb-2 block text-sm font-bold text-slate-800">
@@ -615,7 +651,6 @@ export default function ReportIssue() {
                     (optional)
                   </span>
                 </label>
-
                 {photo ? (
                   <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
                     <img
@@ -623,7 +658,6 @@ export default function ReportIssue() {
                       alt="Issue preview"
                       className="h-36 w-full object-cover"
                     />
-
                     <button
                       type="button"
                       onClick={() => setPhoto(null)}
@@ -633,7 +667,6 @@ export default function ReportIssue() {
                     >
                       <X size={18} />
                     </button>
-
                     <div className="flex items-center gap-2 px-4 py-3">
                       <Camera size={16} className="text-emerald-700" />
                       <p className="truncate text-xs font-semibold text-slate-600">
@@ -645,32 +678,55 @@ export default function ReportIssue() {
                     </div>
                   </div>
                 ) : (
-                  <label className="group flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/70 px-4 py-4 text-left transition hover:border-emerald-400 hover:bg-emerald-50/40">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-700 shadow-sm transition group-hover:scale-105">
-                      <Camera size={25} />
-                    </span>
-
-                    <span className="min-w-0">
-                      <span className="block text-sm font-bold text-slate-800">
-                        Click to upload a photo
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/70 px-4 py-4 text-left transition hover:border-emerald-400 hover:bg-emerald-50/40">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-700 shadow-sm">
+                        <Upload size={22} />
                       </span>
-                      <span className="mt-1 block text-xs text-slate-500">
-                        PNG, JPG, WEBP or GIF · Max 5 MB
+                      <span className="min-w-0">
+                        <span className="block text-sm font-bold text-slate-800">
+                          Choose from gallery
+                        </span>
+                        <span className="mt-1 block text-xs text-slate-500">
+                          Select an existing photo
+                        </span>
                       </span>
-                    </span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"
+                        disabled={submitting}
+                        onChange={handlePhoto}
+                        className="sr-only"
+                      />
+                    </label>
 
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif"
-                      capture="environment"
-                      disabled={submitting}
-                      onChange={handlePhoto}
-                      className="sr-only"
-                    />
-                  </label>
+                    <label className="flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50/50 px-4 py-4 text-left transition hover:bg-emerald-50">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-700 shadow-sm">
+                        <Camera size={22} />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-bold text-slate-800">
+                          Take photo
+                        </span>
+                        <span className="mt-1 block text-xs text-slate-500">
+                          Open your camera
+                        </span>
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"
+                        capture="environment"
+                        disabled={submitting}
+                        onChange={handlePhoto}
+                        className="sr-only"
+                      />
+                    </label>
+                    <p className="text-xs text-slate-500 sm:col-span-2">
+                      JPG, PNG, WEBP or GIF · Maximum 5 MB. Larger JPG/PNG/WEBP photos are compressed automatically.
+                    </p>
+                  </div>
                 )}
               </div>
-
               {/* Address */}
               <div>
                 <label
@@ -682,13 +738,11 @@ export default function ReportIssue() {
                     (optional)
                   </span>
                 </label>
-
                 <div className="relative">
                   <MapPin
                     size={18}
                     className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
                   />
-
                   <input
                     id="issue-address"
                     value={address}
@@ -702,23 +756,19 @@ export default function ReportIssue() {
               </div>
             </div>
           </section>
-
           {/* Location picker */}
           <section className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white shadow-[0_12px_40px_-28px_rgba(15,23,42,.25)]">
             <div className="border-b border-slate-100 px-4 py-3 sm:px-5">
               <p className="text-[11px] font-extrabold uppercase tracking-[.2em] text-emerald-700">
                 02 · Location
               </p>
-
               <h2 className="mt-1 text-lg font-extrabold tracking-tight text-slate-900">
                 Where is the issue?
               </h2>
-
               <p className="mt-1.5 text-sm leading-6 text-slate-500">
                 Use your location or click on the map to move the pin.
               </p>
             </div>
-
             <div className="space-y-3 p-4 sm:p-5">
               <button
                 type="button"
@@ -731,12 +781,10 @@ export default function ReportIssue() {
                 ) : (
                   <LocateFixed size={18} />
                 )}
-
                 {loadingLocation
                   ? "Finding your location…"
                   : "Use my current location"}
               </button>
-
               {locationStatus && (
                 <p
                   role="status"
@@ -745,7 +793,6 @@ export default function ReportIssue() {
                   {locationStatus}
                 </p>
               )}
-
               <div className="relative h-[230px] overflow-hidden rounded-xl border border-slate-200 bg-slate-100 sm:h-[250px]">
                 <MapContainer
                   center={position}
@@ -757,21 +804,17 @@ export default function ReportIssue() {
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                   />
-
                   <LocationPicker
                     position={position}
                     onChange={setPosition}
                   />
-
                   <MapRecenter position={position} />
                 </MapContainer>
-
                 <div className="pointer-events-none absolute left-3 top-3 z-[400] rounded-lg border border-white/80 bg-white/95 px-3 py-2 text-xs font-bold text-slate-700 shadow-md backdrop-blur">
                   <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-emerald-500" />
                   Click map to pin
                 </div>
               </div>
-
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -781,7 +824,6 @@ export default function ReportIssue() {
                     {position[0].toFixed(6)}
                   </p>
                 </div>
-
                 <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Longitude
@@ -791,7 +833,6 @@ export default function ReportIssue() {
                   </p>
                 </div>
               </div>
-
               <p className="flex items-start gap-2 text-[11px] leading-4 text-slate-500">
                 <ShieldCheck
                   size={16}
@@ -802,7 +843,6 @@ export default function ReportIssue() {
               </p>
             </div>
           </section>
-
           {/* API errors */}
           {error && (
             <div
@@ -813,15 +853,12 @@ export default function ReportIssue() {
                 size={19}
                 className="mt-0.5 shrink-0"
               />
-
               <div className="flex-1">
                 <p>{error}</p>
                 <p className="mt-1 text-xs font-normal">
-                  Check that you are logged in and the backend is
-                  running at localhost:5000.
+                  Check your internet connection and confirm you are signed in.
                 </p>
               </div>
-
               <button
                 type="button"
                 onClick={() => setError("")}
@@ -831,7 +868,6 @@ export default function ReportIssue() {
               </button>
             </div>
           )}
-
           {/* Submit */}
           <div className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm sm:p-4 xl:col-span-2">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -839,12 +875,10 @@ export default function ReportIssue() {
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-800">
                   <CheckCircle2 size={22} />
                 </span>
-
                 <div>
                   <p className="text-sm font-extrabold text-slate-900">
                     Ready to send your report?
                   </p>
-
                   <p className="mt-1 text-xs leading-5 text-slate-500">
                     Your report details, authenticated session,
                     coordinates and optional photo will be sent to
@@ -852,7 +886,6 @@ export default function ReportIssue() {
                   </p>
                 </div>
               </div>
-
               <div className="flex flex-col-reverse gap-3 sm:flex-row">
                 <Link
                   to="/user/dashboard"
@@ -860,7 +893,6 @@ export default function ReportIssue() {
                 >
                   Cancel
                 </Link>
-
                 <button
                   type="submit"
                   disabled={submitting || loadingLocation}
@@ -882,7 +914,6 @@ export default function ReportIssue() {
             </div>
           </div>
         </form>
-
         <p className="mt-3 text-center text-[11px] leading-5 text-slate-400">
           EcoTrack · Cleaner spaces begin with community action.
         </p>
